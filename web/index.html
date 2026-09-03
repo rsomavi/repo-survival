@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OSS Pulse — Will your repo survive?</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <span class="logo">OSS Pulse</span>
+  <a class="header-link" href="https://github.com/rsomavi/repo-survival" target="_blank" rel="noopener">Source</a>
+</header>
+
+<main>
+
+  <section class="hero">
+    <div class="hero-text">
+      <h1>Most repos die in their first month.<br>This one predicts which.</h1>
+      <p class="hero-sub">Paste a GitHub repository and get a survival estimate based only on signals from its first 30 days — commits, contributors, and how issues were handled.</p>
+    </div>
+
+    <div class="predictor" id="predictor">
+      <form id="predict-form">
+        <label for="repo-url">GitHub repository URL</label>
+        <input type="text" id="repo-url" name="repo-url" placeholder="github.com/owner/repo" required>
+        <button type="submit" id="predict-btn">Check pulse</button>
+      </form>
+
+      <div id="result" class="result hidden"></div>
+      <div id="error" class="error hidden"></div>
+    </div>
+  </section>
+
+  <section class="how">
+    <h2>How the prediction works</h2>
+    <ol class="steps">
+      <li>
+        <span class="step-num">01</span>
+        <div>
+          <h3>Fetch the first month</h3>
+          <p>The GitHub API is queried live for commits, contributors, and issues from the repository's first 30 days — nothing more recent is used.</p>
+        </div>
+      </li>
+      <li>
+        <span class="step-num">02</span>
+        <div>
+          <h3>Compute the same features as training</h3>
+          <p>Commit frequency, contributor count, issue close ratio, and repo metadata are turned into the exact feature set the model was trained on.</p>
+        </div>
+      </li>
+      <li>
+        <span class="step-num">03</span>
+        <div>
+          <h3>Predict with a Random Forest</h3>
+          <p>A model trained on 2,397 repositories returns a probability of activity six months to years later.</p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <section class="dataset">
+    <h2>What the data says</h2>
+    <div class="dataset-grid">
+      <div class="stat-block">
+        <span class="stat-number" id="stat-total">—</span>
+        <span class="stat-label">Python repositories analyzed</span>
+      </div>
+      <div class="stat-block">
+        <span class="stat-number" id="stat-auc">—</span>
+        <span class="stat-label">Model AUC on held-out data</span>
+      </div>
+      <div class="stat-block">
+        <span class="stat-number" id="stat-abandoned">—</span>
+        <span class="stat-label">Abandoned within the sample</span>
+      </div>
+    </div>
+
+    <div class="chart-wrap">
+      <h3>What predicts survival most</h3>
+      <canvas id="importance-chart"></canvas>
+    </div>
+  </section>
+
+  <section class="limitations">
+    <h2>Where this breaks</h2>
+    <ul>
+      <li><strong>Python only.</strong> The training sample covers Python repositories created in 2023–2024; other languages or eras may behave differently.</li>
+      <li><strong>Solo, non-social projects score low even when healthy.</strong> Personal or academic repos that don't use GitHub Issues or a public license — like a thesis project worked on alone — get flagged as likely abandoned, because those are the same signals unmaintained repos show.</li>
+      <li><strong>Survivorship in the sample itself.</strong> Repositories deleted by their owners never entered the training data, so the model has never seen that outcome.</li>
+      <li><strong>"Active" means pushed to recently</strong> — not popular, not well-maintained, not finished. A repo with one commit last week counts as active.</li>
+    </ul>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <p>Built for DATA11001, University of Helsinki. Model and pipeline on <a href="https://github.com/rsomavi/repo-survival" target="_blank" rel="noopener">GitHub</a>.</p>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>

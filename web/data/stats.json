@@ -1,0 +1,17 @@
+{
+  "total_repos": 2397,
+  "active_pct": 31.0,
+  "abandoned_pct": 69.0,
+  "feature_importance": {
+    "stargazers_count": 0.09928716443515409,
+    "forks_count": 0.1520326719590036,
+    "first_month_commits": 0.13149029563116124,
+    "contributors_count": 0.20322985955052597,
+    "issue_close_ratio": 0.17571252495999426,
+    "commits_per_contributor": 0.13681600663268012,
+    "has_license": 0.04042346219502572,
+    "has_wiki": 0.029368962225774967,
+    "has_description": 0.03163905241067996
+  },
+  "auc": 0.817
+}

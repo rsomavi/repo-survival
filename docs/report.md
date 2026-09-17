@@ -69,11 +69,30 @@ otherwise. This single criterion was chosen over combining activity with
 popularity, after the exploratory analysis showed that popularity alone
 doesn't separate alive projects from dead ones very well.
 
-Several derived variables were computed from the raw data: repository
-age, the ratio of closed to total issues, and first-month commits
-divided by number of contributors. These were combined with direct
-variables such as stars, forks, contributor count, and the presence of
-a license, wiki, and description.
+Every feature below is computed exclusively from each repository's
+**first 30 days of existence** — nothing more recent is used, since the
+whole point of the model is to predict from early signals only. The two
+exceptions are `days_since_push`, which is only used to build the label
+itself (not fed to the model), and `age_days`, which was tested and
+ultimately excluded from the final model (see Section 5).
+
+| Feature | What it measures | How it's computed | Why it's included |
+|---|---|---|---|
+| `stargazers_count` | Stars at the time of collection | Direct field from the GitHub API | Rough proxy for visibility/popularity |
+| `forks_count` | Forks at the time of collection | Direct field from the GitHub API | Proxy for reuse/interest from other developers |
+| `first_month_commits` | Commit activity in the first 30 days | Counted via the GitHub commits endpoint, filtered by `since`/`until` on the creation date | Direct measure of early development intensity |
+| `contributors_count` | Number of distinct people who contributed | Counted via the GitHub contributors endpoint (excluding anonymous contributions) | One of the strongest predictors found in the exploratory analysis — more early contributors correlates with survival |
+| `issue_close_ratio` | Share of issues that were closed, out of those opened | `closed_issues / (open_issues + closed_issues)`, counted via a GraphQL query for exact totals; 0 when there are no issues | The single strongest correlate of survival (r = 0.43) — closing issues signals an actively maintained project |
+| `commits_per_contributor` | Average commits per person in the first month | `first_month_commits / contributors_count`; 0 when there are no contributors | Distinguishes a project driven by one person from one with distributed effort (see the counter-intuitive finding in Section 4) |
+| `has_license` | Whether the repo has a license | Boolean, from the GitHub API's `license` field | Associated with a much higher survival rate (~45% vs ~17%) — a signal of early intent |
+| `has_wiki` | Whether the wiki feature is enabled | Boolean, from the GitHub API | Included to test it, but turned out to carry no real signal — see Section 4 |
+| `has_description` | Whether the repo has a description | Boolean, from the GitHub API | Same kind of early-intent signal as `has_license` (~39% vs ~8%) |
+| `age_days` *(excluded)* | Days since creation | `today − created_at` | Initially included, but dropped after it turned out to be structurally tied to how the label itself is defined (see Section 5) |
+| `days_since_push` *(label only)* | Days since the last commit | `today − pushed_at` | Used only to build the target variable (`label = 1` if ≤ 180 days), not passed to the model |
+
+These derived variables were combined with the metadata fields above
+into the final feature set used for both the exploratory analysis and
+model training.
 
 ## 4. Exploratory analysis
 

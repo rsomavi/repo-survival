@@ -13,8 +13,8 @@ Built for the DATA11001 Data Science course at the University of Helsinki.
    currently-active repos.
 2. **Feature engineering** — commit frequency, contributor count, issue
    close ratio, and repo metadata are computed for each repo's first month.
-3. **Model** — a Random Forest trained on 2,397 Python repositories
-   (AUC 0.817) predicts survival probability.
+3. **Model** — a Gradient Boosting classifier, chosen among four tuned model families
+   and trained on 2,397 Python repositories (test AUC 0.826) predicts survival probability.
 4. **Web app** — paste any GitHub URL and get a live prediction, computed
    from that repo's actual first-month history.
 
@@ -26,7 +26,8 @@ repo-survival/
 │   ├── raw/              # raw API responses (gitignored)
 │   └── processed/        # cleaned dataset (repos_clean.csv)
 ├── notebooks/
-│   └── 01_eda.ipynb      # exploratory analysis + model training
+│   ├── 01_eda.ipynb      # exploratory analysis (saves figures to docs/images)
+│   └── 02_modeling.ipynb # model comparison, tuning, export
 ├── src/
 │   ├── collect_search.py   # stratified repo sampling
 │   ├── collect_details.py  # per-repo feature collection

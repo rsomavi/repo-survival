@@ -84,9 +84,9 @@ ultimately excluded from the final model (see Section 5).
 | `contributors_count` | Number of distinct people who contributed | Counted via the GitHub contributors endpoint (excluding anonymous contributions) | One of the strongest predictors found in the exploratory analysis — more early contributors correlates with survival |
 | `issue_close_ratio` | Share of issues that were closed, out of those opened | `closed_issues / (open_issues + closed_issues)`, counted via a GraphQL query for exact totals; 0 when there are no issues | The single strongest correlate of survival (r = 0.43) — closing issues signals an actively maintained project |
 | `commits_per_contributor` | Average commits per person in the first month | `first_month_commits / contributors_count`; 0 when there are no contributors | Distinguishes a project driven by one person from one with distributed effort (see the counter-intuitive finding in Section 4) |
-| `has_license` | Whether the repo has a license | Boolean, from the GitHub API's `license` field | Associated with a much higher survival rate (~45% vs ~17%) — a signal of early intent |
-| `has_wiki` | Whether the wiki feature is enabled | Boolean, from the GitHub API | Included to test it, but turned out to carry no real signal — see Section 4 |
-| `has_description` | Whether the repo has a description | Boolean, from the GitHub API | Same kind of early-intent signal as `has_license` (~39% vs ~8%) |
+| `has_license` | Whether the repo has a license | Boolean, from the GitHub API's `license` field | Associated with a much higher survival rate (~45% vs ~13%) — a signal of early intent |
+| `has_wiki` | Whether the wiki feature is enabled | Boolean, from the GitHub API | Included to test it. Repos with the wiki enabled survive less often (~26% vs ~44%), a counter-intuitive pattern discussed in Section 4; the model barely uses it |
+| `has_description` | Whether the repo has a description | Boolean, from the GitHub API | Same kind of early-intent signal as `has_license` (~39% vs ~10%) |
 | `age_days` *(excluded)* | Days since creation | `today − created_at` | Initially included, but dropped after it turned out to be structurally tied to how the label itself is defined (see Section 5) |
 | `days_since_push` *(label only)* | Days since the last commit | `today − pushed_at` | Used only to build the target variable (`label = 1` if ≤ 180 days), not passed to the model |
 
@@ -96,69 +96,151 @@ model training.
 
 ## 4. Exploratory analysis
 
-Some variables showed the expected relationship with survival. The
-issue close ratio correlated most strongly with the target variable
-(0.43), followed by contributor count (0.35). Having a license or a
-description was also associated with noticeably higher survival rates —
-around 45% versus 17% for license, and 39% versus 8% for description —
-suggesting both are early signals that the author is taking the project
-seriously.
+The analysis is in `notebooks/01_eda.ipynb`; every figure below is saved
+by that notebook to `docs/images/`. The dataset has 2,397 repositories,
+of which 31% are active and 69% abandoned.
 
-Other variables gave less intuitive results. Commits per contributor
-were slightly higher in abandoned repositories than in active ones, the
-opposite of what might be expected. The most plausible explanation is
-that many abandoned repositories are the work of a single person who
-puts in a lot of effort early on and then walks away, while surviving
-projects tend to spread the work across more people, which lowers the
-individual average even as the project as a whole does better. The wiki
-flag, on the other hand, carried no useful signal at all: it reflects
-whether that feature is enabled on the repository, not whether anyone
-actually uses it, and it comes enabled by default on most new repos.
+![Class balance](images/class_balance.png)
+
+The imbalance is moderate, so it is handled with stratified splits and
+class weights rather than resampling.
+
+Stars, forks and contributor counts follow a power law: half of the
+repositories have fewer than 50 stars, while a few reach more than
+180,000. On a linear scale almost everything piles up at zero, so these
+variables are plotted on a log scale from here on.
+
+![Distribution of stars](images/stars_distribution.png)
+
+### Key findings
+
+**1. Collaboration and issue handling separate the two classes best.**
+Active repositories have a median of roughly 12 contributors in their
+first month, against 1 for abandoned ones, and a median issue close
+ratio of about 0.7 against 0. They also have more first-month commits.
+The abandoned class is concentrated at the bottom of all three ranges.
+
+![Feature distributions by label](images/boxplots_by_label.png)
+
+**2. Early signs of intent matter.** Repositories with a license are
+active 45% of the time versus 13% without one, and those with a
+description 39% versus 10%.
+
+**3. The wiki flag points the opposite way from what one might expect.**
+Repositories with the wiki enabled are active about 26% of the time,
+and those without it about 44%. It is unlikely that disabling the wiki
+keeps a project alive. More plausibly the flag is a proxy for something
+else, such as how the repository was set up or by whom, but this was not
+investigated further. In the final model it is the least important
+feature.
+
+![Survival rate by repository flags](images/survival_by_flags.png)
+
+**4. Correlations are moderate, and popularity is redundant.**
+`issue_close_ratio` has the strongest correlation with the label
+(0.43), followed by `contributors_count` (0.35). Stars and forks
+correlate at 0.88 with each other, so they carry largely the same
+information. `commits_per_contributor` has almost no linear correlation
+with the label (-0.02), but the boxplots show it is slightly higher in
+abandoned repositories: many of them are the work of one person who
+commits heavily at the start and then stops, while surviving projects
+spread the work across more people.
+
+![Correlation matrix](images/correlation_heatmap.png)
+
+**5. Age is almost uncorrelated with the label (-0.09), and yet it
+turned out to matter to a model.** This is discussed in the next
+section.
 
 ## 5. Modeling
 
-Four models were trained and compared on an 80/20 stratified split that
-preserved the class proportions in both train and test sets: logistic
-regression, Random Forest, Gradient Boosting, and a simple neural
-network (MLP). Class weighting was used throughout to account for the
-class imbalance in the sample.
+The modeling is in `notebooks/02_modeling.ipynb`. Four model families
+were compared on the same stratified 80/20 split (1,917 training and 480
+test repositories, with the 31% / 69% class proportions preserved in
+both): logistic regression, Random Forest, Gradient Boosting and a
+small neural network (MLP). Models that are sensitive to feature scale
+(logistic regression and the MLP) include the scaler inside a
+scikit-learn `Pipeline`, so it is fitted on training data only.
+
+### A shortcut hidden in the label
+
+Before comparing models, a problem came up. In the first Random Forest
+that included repository age, `age_days` came out as the most important
+feature, even though its correlation with the label is close to zero.
+
+![Feature importance with age_days](images/feature_importance_with_age.png)
+
+The reason is structural. The label is defined as "pushed within the
+last 180 days", so an older repository has had, by the passage of time
+alone, more chances to fall into an inactive window. The feature does
+not describe the project, it describes how the label was built. With
+`age_days` the Random Forest reaches an AUC of 0.851; without it, 0.817.
+The drop confirms that part of that score came from the shortcut, and
+that the remaining features still carry real signal. `age_days` was
+removed and every result below uses the nine remaining features.
+
+### Default hyperparameters
 
 | Model | AUC | Accuracy | Precision (Active) | Recall (Active) |
 |---|---|---|---|---|
 | Gradient Boosting | 0.823 | 0.802 | 0.701 | 0.631 |
 | Random Forest | 0.817 | 0.792 | 0.667 | 0.658 |
-| Logistic Regression | 0.802 | 0.710 | 0.524 | 0.738 |
+| Logistic Regression | 0.800 | 0.694 | 0.505 | 0.745 |
 | Neural Network (MLP) | 0.789 | 0.808 | 0.739 | 0.591 |
 
-Gradient Boosting achieved the best AUC and was adopted as the final
-model. The margin over Random Forest is small but consistent with what
-would be expected, since Gradient Boosting tends to perform slightly
-better on moderately sized tabular data by building trees sequentially,
-correcting the previous tree's errors rather than training them in
-parallel. The neural network, with the best precision but the lowest
-AUC, likely reflects that a dataset under 2,500 rows doesn't give it
-much room to use its capacity, making it more conservative when
-predicting the active class. Logistic regression still offers the best
-recall, catching more real successes at the cost of more false
+### Hyperparameter tuning
+
+Each model was tuned with a grid search (logistic regression) or a
+randomized search (the other three) using stratified 5-fold
+cross-validation on the training set only. The final model was chosen by
+cross-validated AUC. The test set was used once per model, only to report
+the number, and never to choose anything.
+
+| Model | AUC, default (test) | AUC, tuned (CV) | AUC, tuned (test) |
+|---|---|---|---|
+| Gradient Boosting | 0.823 | 0.853 | 0.826 |
+| Random Forest | 0.817 | 0.850 | 0.835 |
+| Neural Network (MLP) | 0.789 | 0.821 | 0.804 |
+| Logistic Regression | 0.800 | 0.814 | 0.800 |
+
+Tuning improved the test AUC only slightly (by 0.003 for Gradient
+Boosting, 0.018 for Random Forest, 0.015 for the MLP and not at all for
+logistic regression), which suggests the limit is in the information
+carried by the features rather than in the hyperparameters. Gradient
+Boosting and Random Forest are effectively tied: they differ by 0.003 in
+cross-validated AUC and by 0.009 in the opposite direction on the test
+set, both well within the noise of a test set of 480 rows. Gradient
+Boosting was kept because the selection rule, cross-validated AUC, picks
+it; choosing Random Forest because it scored higher on the test set
+would have meant selecting on the test set.
+
+The final model is a Gradient Boosting classifier with 200 trees, a
+learning rate of 0.05, a maximum depth of 2 and a subsample of 0.85. On
+the test set it reaches an AUC of 0.826 and an accuracy of 0.82. For the
+active class, precision is 0.74 and recall 0.64: when it says a
+repository will survive it is right about three times out of four, and
+it finds about two thirds of the repositories that really do.
+
+The neural network has the best precision among the default models but
+the lowest AUC, which is what one would expect from a dataset of under
+2,500 rows that gives it little room to use its capacity. Logistic
+regression has the best recall of all, at the cost of many false
 positives.
 
-Before reaching this comparison, a problem came up that deserves its own
-explanation. When reviewing feature importance for the first Random
-Forest trained, repository age came out as the most influential
-variable — which didn't match its near-zero correlation observed during
-exploratory analysis. The reason turned out to be structural: since the
-target variable is defined as "a commit in the last 6 months," an older
-repository has simply had, by the passage of time alone, more chances to
-fall into a six-month inactive window, without that saying anything
-about the project's quality. Retraining without that variable dropped
-the AUC from 0.851 to 0.817 — a moderate drop that confirmed the
-remaining variables carried genuine signal and the model wasn't relying
-on a shortcut baked into the problem's own definition. All models in the
-table above were trained without this variable.
+### What the model relies on
+
+![Feature importance of the final model](images/feature_importance_final.png)
+
+Contributor count dominates, with an importance of about 0.58, followed
+by issue close ratio at about 0.18. All other features are below 0.06.
+This matches the exploratory analysis: the model is mostly measuring
+whether a project had other people working on it and whether issues were
+being handled. License and description, which looked strong in the
+exploratory analysis, add little once contributors and issues are known,
+probably because they overlap with those signals.
 
 ## 6. Results and limitations
 
-The final model reaches an AUC of 0.823, a clear improvement over a
 random classifier and over a trivial model that always predicts the
 majority class. Even so, it's worth being upfront about what the system
 doesn't do well.
@@ -255,7 +337,7 @@ This project shows that it's possible to predict, with moderate but real
 accuracy, whether a GitHub repository will stay active based on signals
 from its first month of life. The most informative variables turned out
 to be the issue close ratio and early contributor count, while others
-that seemed relevant, like the wiki flag, contributed nothing.
+that seemed relevant, like the wiki flag, contributed almost nothing to the model.
 
 Beyond the numerical result, the process surfaced several lessons about
 validating an end-to-end data pipeline: a sampling bias went unnoticed

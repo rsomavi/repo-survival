@@ -151,3 +151,8 @@ def test_predict_returns_404_for_missing_repo(client, monkeypatch):
     response = client.post("/predict", json={"repo_url": "https://github.com/a/missing"})
     assert response.status_code == 404
     assert "not found" in response.get_json()["error"].lower()
+
+
+def test_frontend_is_served(client):
+    assert client.get("/").status_code == 200
+    assert client.get("/data/stats.json").status_code == 200

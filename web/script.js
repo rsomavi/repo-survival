@@ -1,4 +1,4 @@
-const API_URL = "http://localhost:5000";
+const API_URL = window.location.port === "8000" ? "http://localhost:5000" : "";
 
 const form = document.getElementById("predict-form");
 const btn = document.getElementById("predict-btn");

@@ -11,7 +11,7 @@ import joblib
 import pandas as pd
 import requests
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 
 # Allows importing the functions already written in collect_details.py
@@ -21,8 +21,12 @@ from collect_details import (HEADERS, get_contributors_count,  # noqa: E402
 
 load_dotenv()
 
-app = Flask(__name__)
-CORS(app)  # allow the frontend (different port/origin) to call this API
+WEB_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "web"))
+
+# Flask also serves the static frontend, so the whole app is a single service
+# (same origin for the page and the API, which is what the deployment uses).
+app = Flask(__name__, static_folder=WEB_DIR, static_url_path="")
+CORS(app)  # still needed for local development with the frontend on another port
 
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "model", "repo_survival_model.pkl")
 FEATURES_PATH = os.path.join(os.path.dirname(__file__), "..", "model", "feature_cols.pkl")
@@ -85,6 +89,11 @@ def get_repo_metadata(owner, repo):
     if response.status_code == 401:
         raise GitHubError("GitHub token is invalid or missing on the server", 500)
     raise GitHubError(f"Unexpected GitHub response ({response.status_code})", 502)
+
+
+@app.route("/")
+def index():
+    return send_from_directory(WEB_DIR, "index.html")
 
 
 @app.route("/predict", methods=["POST"])

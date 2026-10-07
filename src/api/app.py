@@ -4,19 +4,20 @@ features, and returns a survival prediction using the trained model.
 """
 
 import os
-import sys
 import re
+import sys
+
 import joblib
-import requests
-from datetime import datetime
 import pandas as pd
-from flask import Flask, request, jsonify
-from flask_cors import CORS
+import requests
 from dotenv import load_dotenv
+from flask import Flask, jsonify, request
+from flask_cors import CORS
 
 # Allows importing the functions already written in collect_details.py
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-from collect_details import get_first_month_commits, get_contributors_count, get_issues_counts, HEADERS
+from collect_details import (HEADERS, get_contributors_count,  # noqa: E402
+                             get_first_month_commits, get_issues_counts)
 
 load_dotenv()
 
@@ -29,43 +30,86 @@ FEATURES_PATH = os.path.join(os.path.dirname(__file__), "..", "model", "feature_
 model = joblib.load(MODEL_PATH)
 feature_cols = joblib.load(FEATURES_PATH)
 
+REQUEST_TIMEOUT = 15  # seconds
+
+# Accepts, among others:
+#   https://github.com/owner/repo
+#   https://github.com/owner/repo/
+#   https://github.com/owner/repo.git
+#   https://github.com/owner/repo/tree/main/src
+#   github.com/owner/repo
+#   git@github.com:owner/repo.git
+GITHUB_URL_PATTERN = re.compile(
+    r"^(?:git@|https?://)?(?:www\.)?github\.com[/:]"
+    r"(?P<owner>[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)/"
+    r"(?P<repo>[A-Za-z0-9._-]+?)"
+    r"(?:\.git)?(?:[/?#].*)?$"
+)
+
+
+class GitHubError(Exception):
+    """Raised when GitHub answers with something other than a usable repo."""
+
+    def __init__(self, message, status_code):
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
+
 
 def parse_github_url(url):
-    """Extract owner/repo from a GitHub URL."""
-    match = re.search(r"github\.com/([^/]+)/([^/]+?)/?$", url.strip())
+    """Extract (owner, repo) from a GitHub URL, or (None, None) if invalid."""
+    match = GITHUB_URL_PATTERN.match((url or "").strip())
     if not match:
         return None, None
-    return match.group(1), match.group(2)
+    return match.group("owner"), match.group("repo")
 
 
 def get_repo_metadata(owner, repo):
-    """Fetch basic repo metadata (stars, forks, license...)."""
+    """Fetch basic repo metadata (stars, forks, license...).
+
+    Raises GitHubError with an accurate message, so a rate limit or a network
+    problem is not reported as "repo not found".
+    """
     url = f"https://api.github.com/repos/{owner}/{repo}"
-    response = requests.get(url, headers=HEADERS)
+    try:
+        response = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+    except requests.RequestException:
+        raise GitHubError("Could not reach the GitHub API", 502)
 
-    if response.status_code != 200:
-        return None
-
-    return response.json()
+    if response.status_code == 200:
+        return response.json()
+    if response.status_code == 404:
+        raise GitHubError("Repo not found on GitHub (it may be private)", 404)
+    if response.status_code in (403, 429):
+        raise GitHubError("GitHub API rate limit reached, try again later", 503)
+    if response.status_code == 401:
+        raise GitHubError("GitHub token is invalid or missing on the server", 500)
+    raise GitHubError(f"Unexpected GitHub response ({response.status_code})", 502)
 
 
 @app.route("/predict", methods=["POST"])
 def predict():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     repo_url = data.get("repo_url", "")
 
     owner, repo = parse_github_url(repo_url)
     if not owner or not repo:
         return jsonify({"error": "Invalid GitHub URL"}), 400
 
-    metadata = get_repo_metadata(owner, repo)
-    if metadata is None:
-        return jsonify({"error": "Repo not found on GitHub"}), 404
+    try:
+        metadata = get_repo_metadata(owner, repo)
 
-    # Compute the same features as in collect_details.py
-    first_month_commits = get_first_month_commits(owner, repo, metadata["created_at"])
-    contributors_count = get_contributors_count(owner, repo)
-    open_issues, closed_issues = get_issues_counts(owner, repo)
+        # Compute the same features as in collect_details.py
+        first_month_commits = get_first_month_commits(owner, repo, metadata["created_at"])
+        contributors_count = get_contributors_count(owner, repo)
+        open_issues, closed_issues = get_issues_counts(owner, repo)
+    except GitHubError as error:
+        return jsonify({"error": error.message}), error.status_code
+    except requests.RequestException:
+        return jsonify({"error": "Could not reach the GitHub API"}), 502
+    except Exception:
+        app.logger.exception("Feature computation failed for %s/%s", owner, repo)
+        return jsonify({"error": "Could not compute the features for this repo"}), 502
 
     total_issues = open_issues + closed_issues
     issue_close_ratio = closed_issues / total_issues if total_issues > 0 else 0

@@ -274,7 +274,7 @@ GitHub repository and get a live prediction. The backend, written in
 Flask, receives the URL, queries the GitHub API to compute the same
 first-month features used during training, and returns the probability
 calculated by the model. The frontend, plain HTML, CSS, and JavaScript
-with no framework, shows the result alongside the features used and a
+with no framework and served by the same Flask application, shows the result alongside the features used and a
 few visualizations of the training dataset, to give the number some
 context.
 
@@ -304,6 +304,33 @@ The tool is most useful for recent repositories, weeks or a few months
 old, where the question of whether they'll survive doesn't have an
 observable answer yet. For repositories with years of history, checking
 their recent activity directly is enough — no prediction is needed.
+
+### Live demo, testing and deployment
+
+The application is deployed on Render and available at
+https://repo-survival.onrender.com/. Flask serves both the API and the
+static frontend, so the whole project runs as a single service and the
+page and the API share an origin. The service runs under gunicorn, the
+GitHub token is supplied as an environment variable and is not part of
+the repository, and the library versions are pinned to those used for
+training, since a model saved with one version of scikit-learn is not
+guaranteed to load with another. The free hosting plan puts the service
+to sleep after a period of inactivity, so the first request after a
+pause can take up to a minute.
+
+The repository includes an automated test suite (`pytest`). The API
+tests run offline, with GitHub and the model replaced by fakes, and cover
+URL parsing, error handling (invalid URL, repository not found, rate
+limit, network failure) and the feature vector sent to the model. A
+second group of tests checks the cleaned dataset and the saved model:
+that the label is binary and not degenerate, that there are no
+duplicated repositories or missing values, that `age_days` stays out of
+the model's features so the leakage described in Section 5 cannot come
+back, and that the model returns valid probabilities. During manual
+testing, repository URLs copied from the clone button (ending in `.git`)
+were rejected as "not found"; the parser now accepts them, and the
+error messages distinguish a missing repository from a rate limit or a
+network problem.
 
 ### Try it yourself
 

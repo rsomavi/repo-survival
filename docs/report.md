@@ -31,6 +31,47 @@ Python repositories created between 2023 and 2024. This range was chosen
 to allow enough time perspective: a repository needs time ahead of it to
 be genuinely considered abandoned, not just paused for a few weeks.
 
+### How the collection works
+
+The collection runs in two stages, each one a script in `src/`, with
+every request authenticated with a personal GitHub token (it only needs
+read access to public data, and it raises the API's rate limit
+considerably).
+
+1. **Sampling** (`collect_search.py`). The search endpoint of the REST
+   API is queried for Python repositories, one query per combination of
+   creation quarter and star range, taking the maximum of 100 results per
+   query. The script waits a few seconds between queries to stay within
+   the search rate limit, removes repositories that appear in more than
+   one query using their numeric ID, and saves the list as raw JSON.
+2. **Per-repository details** (`collect_details.py`). For each sampled
+   repository, the features are computed from its own history:
+   - the metadata (stars, forks, license, wiki, description) comes from
+     the repository endpoint;
+   - the first-month commits are counted through the commits endpoint,
+     restricted to the 30 days after the repository's creation date;
+   - the contributors are counted through the contributors endpoint,
+     excluding anonymous contributions;
+   - the open and closed issues are obtained with a GraphQL query (see
+     below).
+
+   Since this stage makes several requests per repository, the script
+   saves its progress to disk periodically and can resume from where it
+   stopped after an interruption or a rate limit, and it accepts a limit
+   on the number of repositories, which made it possible to test the
+   whole pipeline on a handful of repositories before running it on all
+   of them.
+
+The raw responses are kept in `data/raw/` (not included in the
+repository), and the cleaning script then turns them into the dataset
+used in the rest of the project. Only public information is used, and
+the collection can be repeated with the commands listed in the project
+README. Because GitHub activity keeps changing, a new run would give
+slightly different values for the label, which is computed at
+collection time.
+
+### Problems found along the way
+
 The first version of the collection sorted search results by last
 update date, aiming for variety rather than pulling only the most
 popular repositories. When the target variable was computed on that
@@ -43,8 +84,8 @@ variable that was meant to be predicted.
 The fix was to redesign the collection with stratified sampling: 24
 independent queries combining 8 creation quarters with 3 star ranges (0,
 1-49, 50+), with no sort criterion related to popularity or activity.
-This produced a sample of 2,400 repositories with a much more credible
-distribution: 31% active, 69% abandoned.
+This produced a sample of 2,400 repositories (2,397 after cleaning) with
+a much more credible distribution: 31% active, 69% abandoned.
 
 A second, more technical problem appeared while collecting per-repo
 features. The count of open and closed issues relied on a common REST
